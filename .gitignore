@@ -7,4 +7,5 @@ covers/
 video/
 songs/
 __pycache__/
-*.pyc
+*.pyc.env 
+.env 
