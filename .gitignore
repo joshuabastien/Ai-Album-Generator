@@ -1,0 +1,10 @@
+token.pickle
+async.pickle
+.env
+client_secret.json
+audio/
+covers/
+video/
+songs/
+__pycache__/
+*.pyc

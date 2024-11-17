@@ -8,18 +8,18 @@ import pickle
 # Scopes required for the YouTube Data API
 SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
 
-def get_authenticated_service():
+def get_authenticated_service(token_name='token.pickle'):
     credentials = None
-    if os.path.exists('token.pickle'):
-        with open('token.pickle', 'rb') as token:
+    if os.path.exists(token_name):
+        with open(token_name, 'rb') as token:
             credentials = pickle.load(token)
     if not credentials or not credentials.valid:
         if credentials and credentials.expired and credentials.refresh_token:
             credentials.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file('client_secrets.json', SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file('client_secret.json', SCOPES)
             credentials = flow.run_local_server(port=0)
-        with open('token.pickle', 'wb') as token:
+        with open(token_name, 'wb') as token:
             pickle.dump(credentials, token)
     return build('youtube', 'v3', credentials=credentials)
 
@@ -32,7 +32,7 @@ def upload_video(youtube, file, title, description, category, tags):
             'categoryId': category
         },
         'status': {
-            'privacyStatus': 'private'
+            'privacyStatus': 'public'
         }
     }
 
@@ -54,10 +54,10 @@ def upload_video(youtube, file, title, description, category, tags):
 
 if __name__ == '__main__':
     youtube = get_authenticated_service()
-    file = 'path_to_your_video_file.mp4'
-    title = 'Your Video Title'
-    description = 'Your Video Description'
+    file = 'video/combined_video.mp4'
+    title = 'Cafe Jazz'
+    description = 'Jazz music to study and relax.'
     category = '22'  # See https://developers.google.com/youtube/v3/docs/videoCategories/list
-    tags = ['tag1', 'tag2']
+    tags = ['Jazz', 'lofi']
 
     upload_video(youtube, file, title, description, category, tags)
