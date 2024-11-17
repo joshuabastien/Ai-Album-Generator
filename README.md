@@ -25,8 +25,7 @@ If you leave any input blank, default values will be used.
 1. **Clone Suno API server linked above and get it running**
 2. **Clone this Repository**
 3. **Install Dependencies**
-4. **Set Up Environment Variables**
-   Create .env file and add openai api key.
+4. **Add OpenAI API key as Environment Variables**
 5. **Configure Google API Credentials**
    - Enable the YouTube Data API v3 in your Google Developers Console.
    - Download client_secret.json and place it in the project root directory.
