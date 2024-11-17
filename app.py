@@ -12,6 +12,8 @@ import shutil
 os.makedirs("songs", exist_ok=True)
 os.makedirs("covers", exist_ok=True)
 os.makedirs("video", exist_ok=True)
+os.makedirs("audio", exist_ok=True)
+
 
 def generate_song(description):
     # Generate audio based on the description
