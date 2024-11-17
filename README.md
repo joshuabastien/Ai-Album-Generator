@@ -30,7 +30,7 @@ If you leave any input blank, default values will be used.
 5. **Configure Google API Credentials**
    - Enable the YouTube Data API v3 in your Google Developers Console.
    - Download client_secret.json and place it in the project root directory.
-6. **Run 'Python app.py'
+6. **Run 'Python app.py'**
 
 Sample outputs:
 https://www.youtube.com/@while_True_break/videos
