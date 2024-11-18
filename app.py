@@ -7,13 +7,13 @@ from downloadsong import download_mp3
 from pydub import AudioSegment
 from uploadtoyoutube import get_authenticated_service, upload_video
 import shutil
+from datetime import datetime
 
 # Create necessary directories
 os.makedirs("songs", exist_ok=True)
 os.makedirs("covers", exist_ok=True)
 os.makedirs("video", exist_ok=True)
 os.makedirs("audio", exist_ok=True)
-
 
 def generate_song(description):
     # Generate audio based on the description
@@ -123,7 +123,7 @@ def filter_short_songs(audio_files, min_duration=30):
 def main_loop(description, cover_description, num_songs):
 
     # Define folder paths
-    folders_to_clear = ['audio', 'covers', 'songs', 'video']
+    folders_to_clear = ['audio', 'covers', 'songs']
 
     # Clear each folder
     for folder in folders_to_clear:
@@ -152,7 +152,9 @@ def main_loop(description, cover_description, num_songs):
         timestamps_in_minutes.append(f"{minutes:02}:{seconds:02}")
 
     # Create a single video from the combined audio and cover image
-    output_path = "video/combined_video.mp4"
+    current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+    video_filename = f"combined_video_{current_time}.mp4"
+    output_path = f"video/{video_filename}"
     create_video(combined_audio_path, cover_path, output_path)
 
     # Print or return the timestamps for each song
@@ -165,6 +167,13 @@ def main_loop(description, cover_description, num_songs):
     # Print the generated information
     print(f"Generated Video Title: {video_title}")
     print(f"Generated Video Description: {video_description}")
+
+    text_filename = video_filename.replace('.mp4', '.txt')
+    text_output_path = f"video/{text_filename}"
+
+    # Write the video title and description into the text file
+    with open(text_output_path, 'w', encoding='utf-8') as file:
+        file.write(f"{video_title}\n\n{video_description}")
 
     # YouTube upload section
     youtube = get_authenticated_service()
