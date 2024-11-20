@@ -5,6 +5,16 @@ import base64
 import logging
 import time
 from pathlib import Path
+from PIL import Image
+from io import BytesIO
+from typing import Union, List, Literal, TypedDict
+
+# Define the ImagePosition schema
+class ImagePosition(TypedDict):
+    uri: str
+    position: Literal["first", "last"]
+
+PromptImage = Union[str, List[ImagePosition]]
 
 # Configure logging
 logging.basicConfig(
@@ -56,7 +66,7 @@ def generate_video_with_cover(image_path, prompt_text='Dynamic Motion', model='g
     # Step 5: Return the Video Path
     return video_path
 
-def submit_video_generation_task(image_path, prompt_text, model):
+def submit_video_generation_task(image_path: str, prompt_text: str, model: str) -> dict:
     """
     Submits a video generation task to the RunwayML API.
 
@@ -66,61 +76,42 @@ def submit_video_generation_task(image_path, prompt_text, model):
         model (str): The model to use for generation.
 
     Returns:
-        str: The task ID of the submitted task.
-
-    Raises:
-        FileNotFoundError: If the image file does not exist.
-        ValueError: If the API key is not found or image format is unsupported.
-        requests.exceptions.HTTPError: If the API request fails.
+        dict: The response from the API.
     """
-    # Retrieve API key from environment variable
     api_key = os.getenv("RUNWAYML_API_KEY")
     if not api_key:
-        logger.error("API key not found. Please set the RUNWAYML_API_KEY environment variable in your .env file.")
-        raise ValueError("API key not found. Please set the RUNWAYML_API_KEY environment variable in your .env file.")
+        raise ValueError("API key not found. Set the RUNWAYML_API_KEY environment variable.")
 
-    # Check if the image file exists
-    if not os.path.isfile(image_path):
-        logger.error(f"Image file not found at path: {image_path}")
-        raise FileNotFoundError(f"Image file not found at path: {image_path}")
+    if not os.path.isfile(image_path) or not image_path.lower().endswith(".png"):
+        raise FileNotFoundError(f"Invalid PNG file at: {image_path}")
 
-    # Ensure the image is a PNG
-    if not image_path.lower().endswith('.png'):
-        logger.error("Unsupported image format. Only PNG images are supported.")
-        raise ValueError("Unsupported image format. Only PNG images are supported.")
-
-    # Read and base64-encode the image
-    try:
-        with open(image_path, "rb") as image_file:
-            encoded_image = base64.b64encode(image_file.read()).decode('utf-8')
-            logger.info(f"Image at {image_path} successfully base64-encoded.")
-    except Exception as e:
-        logger.error(f"Failed to read and encode image: {e}")
-        raise
-
-    # Prepend the data URI scheme as required by the API
-    prompt_image = f"data:image/png;base64,{encoded_image}"
-
+    # Encode the original image
+    with open(image_path, "rb") as f:
+        original_base64 = base64.b64encode(f.read()).decode("utf-8")
+    prompt_image_first = f"data:image/png;base64,{original_base64}"
+    # Create and encode the rotated image
+    rotated_image = Image.open(image_path).rotate(1, expand=True)
+    rotated_path = "rotated_image.png"
+    rotated_image.save(rotated_path)
+    with open(rotated_path, "rb") as f:
+        rotated_base64 = base64.b64encode(f.read()).decode("utf-8")
+    prompt_image_last = f"data:image/png;base64,{rotated_base64}"
+    # Construct the payload
+    payload = {
+        "promptImage": [
+            {"uri": prompt_image_first, "position": "first"},
+            {"uri": prompt_image_last, "position": "last"}],
+        "promptText": prompt_text,
+        "model": model,
+        "duration": 5
+    }
+    # Send the request
     url = "https://api.dev.runwayml.com/v1/image_to_video"
-
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
         "X-Runway-Version": "2024-11-06"
     }
-
-    payload = {
-        "promptImage": [
-            {
-                "uri": prompt_image,
-                "position": "first"
-            }
-        ],
-        "promptText": prompt_text,
-        "model": model,
-        "duration": 5
-    }
-
 
 
     try:
