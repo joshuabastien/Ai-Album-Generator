@@ -1,59 +1,347 @@
 import os
-import time
-import base64
 import requests
-from runwayml import RunwayML
-from runwayml.types import TaskRetrieveResponse, ImageToVideoCreateResponse
-import runwayml
+from dotenv import load_dotenv
+import base64
+import logging
+import time
+from pathlib import Path
 
-def generate_video_with_cover(cover_path, prompt_text='Dynamic motion', duration=5):
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
-    print(runwayml.__version__)
+# Load environment variables from the .env file
+load_dotenv()
 
-    # Initialize the RunwayML client with your API key
-    client = RunwayML(
-        api_key=os.environ.get("RUNWAYML_API_SECRET"),
-    )
+def generate_video_with_cover(image_path, prompt_text='Dynamic Motion', model='gen3a_turbo', download_folder="video", max_retries=60, delay=10):
+    """
+    Submits a video generation task, polls for its completion, downloads the video, and returns the video path.
 
-    # Encode the image to base64
-    with open(cover_path, "rb") as f:
-        base64_image = base64.b64encode(f.read()).decode("utf-8")
+    Parameters:
+        image_path (str): Path to the local PNG image file.
+        prompt_text (str): Text prompt to guide the video generation.
+        model (str, optional): The model to use for generation. Defaults to 'gen3a_turbo'.
+        download_folder (str, optional): The folder to save the downloaded video. Defaults to "video".
+        max_retries (int, optional): Maximum number of polling attempts. Defaults to 60.
+        delay (int, optional): Delay in seconds between polling attempts. Defaults to 10.
 
-    # Create a new image-to-video task using the "gen3a_turbo" model
-    image_to_video: ImageToVideoCreateResponse = client.image_to_video.create(
-        model='gen3a_turbo',
-        prompt_image=f"data:image/png;base64,{base64_image}",
-        prompt_text=prompt_text,
-        duration=duration,  # Set the duration to 5 seconds
-    )
-    task_id = image_to_video.id
+    Returns:
+        str: The file path where the video was saved.
 
-    # Poll the task until it's complete
-    time.sleep(10)  # Wait for ten seconds before polling
-    task: TaskRetrieveResponse = client.tasks.retrieve(task_id)
-    while task.status not in ['SUCCEEDED', 'FAILED']:
-        time.sleep(10)  # Wait for ten seconds before polling
-        task = client.tasks.retrieve(task_id)
+    Raises:
+        FileNotFoundError: If the image file does not exist.
+        ValueError: If the API key is not found or image format is unsupported.
+        RuntimeError: If the task fails or is cancelled.
+        TimeoutError: If the task does not complete within the allowed retries.
+        requests.exceptions.HTTPError: If any API request fails.
+    """
+    # Step 1: Submit the Video Generation Task
+    task_id = submit_video_generation_task(image_path, prompt_text, model)
 
-    print('Task complete:', task)
+    # Step 2: Poll for Task Completion
+    task_info = poll_task_status(task_id, max_retries, delay)
 
-    # Check if the task succeeded
-    if task.status == 'SUCCEEDED' and task.output:
-        output_url = task.output[0]  # Get the first output URL
+    # Step 3: Extract the Output Video URL
+    video_url = extract_video_url(task_info)
 
-        # Ensure the 'video/' directory exists
-        os.makedirs('video', exist_ok=True)
+    # Step 4: Download the Video
+    video_path = download_video(video_url, task_id, download_folder)
 
-        # Download the video from the output URL
-        response = requests.get(output_url)
-        if response.status_code == 200:
-            # Use a unique filename to avoid overwriting files
-            video_filename = f'output_{task_id}.mp4'
-            video_path = os.path.join('video', video_filename)
-            with open(video_path, 'wb') as f:
-                f.write(response.content)
-            print(f'Video saved to {video_path}')
-        else:
-            print(f'Failed to download video, status code: {response.status_code}')
+    # Step 5: Return the Video Path
+    return video_path
+
+def submit_video_generation_task(image_path, prompt_text, model):
+    """
+    Submits a video generation task to the RunwayML API.
+
+    Parameters:
+        image_path (str): Path to the local PNG image file.
+        prompt_text (str): Text prompt to guide the video generation.
+        model (str): The model to use for generation.
+
+    Returns:
+        str: The task ID of the submitted task.
+
+    Raises:
+        FileNotFoundError: If the image file does not exist.
+        ValueError: If the API key is not found or image format is unsupported.
+        requests.exceptions.HTTPError: If the API request fails.
+    """
+    # Retrieve API key from environment variable
+    api_key = os.getenv("RUNWAYML_API_KEY")
+    if not api_key:
+        logger.error("API key not found. Please set the RUNWAYML_API_KEY environment variable in your .env file.")
+        raise ValueError("API key not found. Please set the RUNWAYML_API_KEY environment variable in your .env file.")
+
+    # Check if the image file exists
+    if not os.path.isfile(image_path):
+        logger.error(f"Image file not found at path: {image_path}")
+        raise FileNotFoundError(f"Image file not found at path: {image_path}")
+
+    # Ensure the image is a PNG
+    if not image_path.lower().endswith('.png'):
+        logger.error("Unsupported image format. Only PNG images are supported.")
+        raise ValueError("Unsupported image format. Only PNG images are supported.")
+
+    # Read and base64-encode the image
+    try:
+        with open(image_path, "rb") as image_file:
+            encoded_image = base64.b64encode(image_file.read()).decode('utf-8')
+            logger.info(f"Image at {image_path} successfully base64-encoded.")
+    except Exception as e:
+        logger.error(f"Failed to read and encode image: {e}")
+        raise
+
+    # Prepend the data URI scheme as required by the API
+    prompt_image = f"data:image/png;base64,{encoded_image}"
+
+    url = "https://api.dev.runwayml.com/v1/image_to_video"
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "X-Runway-Version": "2024-11-06"
+    }
+
+    payload = {
+        "promptImage": [
+            {
+                "uri": prompt_image,
+                "position": "first"
+            }
+        ],
+        "promptText": prompt_text,
+        "model": model,
+        "duration": 5
+    }
+
+
+
+    try:
+        logger.info("Sending POST request to RunwayML API to generate video...")
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()  # Raises HTTPError for bad responses (4xx or 5xx)
+        logger.info("Video generation task submitted successfully.")
+        task_info = response.json()
+        task_id = task_info.get("id")
+        if not task_id:
+            logger.error("Task ID not found in the response.")
+            raise ValueError("Task ID not found in the response.")
+        return task_id
+    except requests.exceptions.HTTPError as http_err:
+        logger.error(f"HTTP error occurred: {http_err} - Response: {response.text}")
+        raise
+    except Exception as err:
+        logger.error(f"An unexpected error occurred: {err}")
+        raise
+
+def poll_task_status(task_id, max_retries=60, delay=10):
+    """
+    Polls the RunwayML API to check the status of a task until it succeeds or fails.
+
+    Parameters:
+        task_id (str): The ID of the task to check.
+        max_retries (int, optional): Maximum number of polling attempts. Defaults to 60.
+        delay (int, optional): Delay in seconds between polling attempts. Defaults to 10.
+
+    Returns:
+        dict: The task information once it has succeeded.
+
+    Raises:
+        TimeoutError: If the task does not complete within the maximum number of retries.
+        RuntimeError: If the task fails or is cancelled.
+        ValueError: If the API key is not found.
+        requests.exceptions.HTTPError: If the API request fails.
+    """
+    api_key = os.getenv("RUNWAYML_API_KEY")
+    if not api_key:
+        logger.error("API key not found. Please set the RUNWAYML_API_KEY environment variable in your .env file.")
+        raise ValueError("API key not found. Please set the RUNWAYML_API_KEY environment variable in your .env file.")
+
+    url = f"https://api.dev.runwayml.com/v1/tasks/{task_id}"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "X-Runway-Version": "2024-11-06"
+    }
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info(f"Polling task status (Attempt {attempt}/{max_retries})...")
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            task_info = response.json()
+            status = task_info.get("status")
+            logger.info(f"Task Status: {status}")
+
+            if status == "SUCCEEDED":
+                logger.info("Task succeeded.")
+                return task_info
+            elif status in ["FAILED", "CANCELLED"]:
+                logger.error(f"Task ended with status: {status}")
+                raise RuntimeError(f"Task ended with status: {status}")
+            else:
+                logger.info(f"Task is still in status: {status}. Waiting for {delay} seconds before next check.")
+                time.sleep(delay)
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"HTTP error occurred while checking task status: {http_err} - Response: {response.text}")
+            raise
+        except Exception as err:
+            logger.error(f"An unexpected error occurred while checking task status: {err}")
+            raise
+
+    logger.error(f"Task did not complete within {max_retries * delay} seconds.")
+    raise TimeoutError(f"Task did not complete within {max_retries * delay} seconds.")
+
+def extract_video_url(task_info):
+    """
+    Extracts the first output URL from the task information.
+
+    Parameters:
+        task_info (dict): The task information dictionary.
+
+    Returns:
+        str: The first output URL.
+
+    Raises:
+        ValueError: If no output URLs are found.
+    """
+    output = task_info.get("output")
+    if not output or not isinstance(output, list):
+        logger.error("No output URLs found in the task information.")
+        raise ValueError("No output URLs found in the task information.")
+    return output[0]
+
+def download_video(video_url, task_id, download_folder="video"):
+    """
+    Downloads a video from the given URL and saves it to the specified folder with a unique name.
+
+    Parameters:
+        video_url (str): The URL of the video to download.
+        task_id (str): The ID of the task, used to generate a unique filename.
+        download_folder (str, optional): The folder to save the downloaded video. Defaults to "video".
+
+    Returns:
+        str: The file path where the video was saved.
+
+    Raises:
+        requests.exceptions.HTTPError: If the download request fails.
+        Exception: For any other errors during download or file saving.
+    """
+    # Ensure the download folder exists
+    Path(download_folder).mkdir(parents=True, exist_ok=True)
+    logger.info(f"Download folder '{download_folder}' is ready.")
+
+    # Determine the file extension from the URL
+    file_extension = os.path.splitext(video_url)[1].split('?')[0]  # Removes query parameters
+    if not file_extension:
+        file_extension = ".mp4"  # Default extension
     else:
-        print('Task failed or no output was generated.')
+        # Validate that the extension is a common video format
+        supported_extensions = [".mp4", ".mov", ".avi", ".mkv"]
+        if file_extension.lower() not in supported_extensions:
+            logger.warning(f"Uncommon file extension '{file_extension}' detected. Defaulting to '.mp4'.")
+            file_extension = ".mp4"
+
+    # Generate a unique filename using the task ID
+    filename = f"{task_id}{file_extension}"
+    file_path = os.path.join(download_folder, filename)
+
+    try:
+        logger.info(f"Starting download of video from {video_url}...")
+        with requests.get(video_url, stream=True) as r:
+            r.raise_for_status()
+            with open(file_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+        logger.info(f"Video downloaded successfully and saved to {file_path}.")
+        return file_path
+    except requests.exceptions.HTTPError as http_err:
+        logger.error(f"HTTP error occurred during video download: {http_err} - Response: {r.text}")
+        raise
+    except Exception as err:
+        logger.error(f"An unexpected error occurred during video download: {err}")
+        raise
+
+
+def check_task_status(task_id, max_retries=30, delay=10):
+    """
+    Polls the RunwayML API to check the status of a task until it succeeds or fails.
+
+    Parameters:
+        task_id (str): The ID of the task to check.
+        max_retries (int, optional): Maximum number of polling attempts. Defaults to 30.
+        delay (int, optional): Delay in seconds between polling attempts. Defaults to 10.
+
+    Returns:
+        dict: The task information once it has succeeded.
+
+    Raises:
+        TimeoutError: If the task does not complete within the maximum number of retries.
+        requests.exceptions.HTTPError: If the API request fails.
+    """
+    api_key = os.getenv("RUNWAYML_API_KEY")
+    if not api_key:
+        logger.error("API key not found. Please set the RUNWAYML_API_KEY environment variable in your .env file.")
+        raise ValueError("API key not found. Please set the RUNWAYML_API_KEY environment variable in your .env file.")
+
+    url = f"https://api.dev.runwayml.com/v1/tasks/{task_id}"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "X-Runway-Version": "2024-11-06"
+    }
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info(f"Polling task status (Attempt {attempt}/{max_retries})...")
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            task_info = response.json()
+            status = task_info.get("status")
+            logger.info(f"Task Status: {status}")
+
+            if status == "SUCCEEDED":
+                logger.info("Task succeeded.")
+                return task_info
+            elif status in ["FAILED", "CANCELLED"]:
+                logger.error(f"Task ended with status: {status}")
+                raise RuntimeError(f"Task ended with status: {status}")
+            else:
+                logger.info(f"Task is still in status: {status}. Waiting for {delay} seconds before next check.")
+                time.sleep(delay)
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"HTTP error occurred while checking task status: {http_err} - Response: {response.text}")
+            raise
+        except Exception as err:
+            logger.error(f"An unexpected error occurred while checking task status: {err}")
+            raise
+
+    logger.error(f"Task did not complete within {max_retries * delay} seconds.")
+    raise TimeoutError(f"Task did not complete within {max_retries * delay} seconds.")
+
+def get_output_url(task_info):
+    """
+    Extracts the first output URL from the task information.
+
+    Parameters:
+        task_info (dict): The task information dictionary.
+
+    Returns:
+        str: The first output URL.
+
+    Raises:
+        ValueError: If no output URLs are found.
+    """
+    output = task_info.get("output")
+    if not output or not isinstance(output, list):
+        logger.error("No output URLs found in the task information.")
+        raise ValueError("No output URLs found in the task information.")
+    return output[0]
