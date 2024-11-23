@@ -8,6 +8,7 @@ from pathlib import Path
 from PIL import Image
 from io import BytesIO
 from typing import Union, List, Literal, TypedDict
+from  uploadtonetlify import verify_image_url, trigger_netlify_build, upload_to_github
 
 # Define the ImagePosition schema
 class ImagePosition(TypedDict):
@@ -85,22 +86,38 @@ def submit_video_generation_task(image_path: str, prompt_text: str, model: str) 
     if not os.path.isfile(image_path) or not image_path.lower().endswith(".png"):
         raise FileNotFoundError(f"Invalid PNG file at: {image_path}")
 
-    # Encode the original image
-    with open(image_path, "rb") as f:
-        original_base64 = base64.b64encode(f.read()).decode("utf-8")
-    prompt_image_first = f"data:image/png;base64,{original_base64}"
-    # Create and encode the rotated image
-    rotated_image = Image.open(image_path).rotate(1, expand=True)
-    rotated_path = "rotated_image.png"
-    rotated_image.save(rotated_path)
-    with open(rotated_path, "rb") as f:
-        rotated_base64 = base64.b64encode(f.read()).decode("utf-8")
-    prompt_image_last = f"data:image/png;base64,{rotated_base64}"
+    # Upload the image to GitHub repository
+    print("Uploading image to GitHub...")
+    uploaded_url = upload_to_github(image_path)
+    if not uploaded_url:
+        raise RuntimeError("Failed to upload the image to GitHub.")
+    print(f"Image uploaded to GitHub: {uploaded_url}")
+
+    # Trigger Netlify build
+    print("Triggering Netlify build...")
+    deploy_id = trigger_netlify_build()
+    if not deploy_id:
+        raise RuntimeError("Failed to trigger Netlify build.")
+
+    # Wait for Netlify deploy
+    delay_seconds = 120  # Adjust this delay as needed based on typical deployment times
+    print(f"Waiting for {delay_seconds} seconds to allow Netlify deployment...")
+    time.sleep(delay_seconds)
+
+    # Construct the correct public URL dynamically
+    base_path = uploaded_url.split("/main/")[-1]  # Extract the relative path (e.g., "public/uploads/landscape_cover.png")
+    prompt_image_url = f"https://joshuabastien.com/{base_path.replace('public/', '')}"  # Remove "public/" for Netlify path
+
+    # Verify the uploaded image URL
+    print(f"Attempting to verify the image URL: {prompt_image_url}")
+    if not verify_image_url(prompt_image_url, retries=30, delay=30):
+        raise RuntimeError(f"Uploaded image URL not accessible: {prompt_image_url}")
+
     # Construct the payload
     payload = {
         "promptImage": [
-            {"uri": prompt_image_first, "position": "first"},
-            {"uri": prompt_image_last, "position": "last"}],
+            {"uri": prompt_image_url, "position": "first"},
+            {"uri": prompt_image_url, "position": "last"}],
         "promptText": prompt_text,
         "model": model,
         "duration": 5
@@ -260,79 +277,3 @@ def download_video(video_url, task_id, download_folder="video"):
     except Exception as err:
         logger.error(f"An unexpected error occurred during video download: {err}")
         raise
-
-
-def check_task_status(task_id, max_retries=30, delay=10):
-    """
-    Polls the RunwayML API to check the status of a task until it succeeds or fails.
-
-    Parameters:
-        task_id (str): The ID of the task to check.
-        max_retries (int, optional): Maximum number of polling attempts. Defaults to 30.
-        delay (int, optional): Delay in seconds between polling attempts. Defaults to 10.
-
-    Returns:
-        dict: The task information once it has succeeded.
-
-    Raises:
-        TimeoutError: If the task does not complete within the maximum number of retries.
-        requests.exceptions.HTTPError: If the API request fails.
-    """
-    api_key = os.getenv("RUNWAYML_API_KEY")
-    if not api_key:
-        logger.error("API key not found. Please set the RUNWAYML_API_KEY environment variable in your .env file.")
-        raise ValueError("API key not found. Please set the RUNWAYML_API_KEY environment variable in your .env file.")
-
-    url = f"https://api.dev.runwayml.com/v1/tasks/{task_id}"
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "X-Runway-Version": "2024-11-06"
-    }
-
-    for attempt in range(1, max_retries + 1):
-        try:
-            logger.info(f"Polling task status (Attempt {attempt}/{max_retries})...")
-            response = requests.get(url, headers=headers)
-            response.raise_for_status()
-            task_info = response.json()
-            status = task_info.get("status")
-            logger.info(f"Task Status: {status}")
-
-            if status == "SUCCEEDED":
-                logger.info("Task succeeded.")
-                return task_info
-            elif status in ["FAILED", "CANCELLED"]:
-                logger.error(f"Task ended with status: {status}")
-                raise RuntimeError(f"Task ended with status: {status}")
-            else:
-                logger.info(f"Task is still in status: {status}. Waiting for {delay} seconds before next check.")
-                time.sleep(delay)
-        except requests.exceptions.HTTPError as http_err:
-            logger.error(f"HTTP error occurred while checking task status: {http_err} - Response: {response.text}")
-            raise
-        except Exception as err:
-            logger.error(f"An unexpected error occurred while checking task status: {err}")
-            raise
-
-    logger.error(f"Task did not complete within {max_retries * delay} seconds.")
-    raise TimeoutError(f"Task did not complete within {max_retries * delay} seconds.")
-
-def get_output_url(task_info):
-    """
-    Extracts the first output URL from the task information.
-
-    Parameters:
-        task_info (dict): The task information dictionary.
-
-    Returns:
-        str: The first output URL.
-
-    Raises:
-        ValueError: If no output URLs are found.
-    """
-    output = task_info.get("output")
-    if not output or not isinstance(output, list):
-        logger.error("No output URLs found in the task information.")
-        raise ValueError("No output URLs found in the task information.")
-    return output[0]
