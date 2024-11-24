@@ -10,7 +10,7 @@ Uses [Suno API](https://github.com/gcui-art/suno-api) to host a server that is c
 - **Cover Image Creation**: Uses the OpenAI API to create a 1024x1024 cover image which is then cut up and put back into the OpenAI API a couple more times to generate a 16:9 image.
 - **Video Compilation**: Combines audio tracks and cover image into a cohesive video file and stores timestamps of each song.
 - **YouTube Upload**: Uses the OpenAI API to generate a unique title and description (including a quote, song names, and timestamps) and uses the Youtube Data Api v3 to upload it.
-- **Automated Loop**: Can produce multiple albums in a loop, and also uses generative ai so slightly change user inputs each time to ensure unique albums.
+- **Automated Loop**: Can produce multiple albums in a loop, and also uses generative ai to slightly change user inputs each time to ensure unique albums.
 
  ### The script will prompt you for:
 - Album Music Description: Text prompt for generating songs.
