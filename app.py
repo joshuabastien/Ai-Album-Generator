@@ -2,12 +2,17 @@ import os
 import time
 from callapi import generate_audio_by_prompt, get_audio_information
 from openaiapi import generate_image, save_image, generate_video_title, generate_video_description, extend_cover_image, edit_cover_description, edit_description
-from moviepy.editor import AudioFileClip, ImageClip
+from runwayapi import generate_video_with_cover
 from downloadsong import download_mp3
 from pydub import AudioSegment
 from uploadtoyoutube import get_authenticated_service, upload_video
 import shutil
 from datetime import datetime
+import os
+import time
+from moviepy.video.io.VideoFileClip import VideoFileClip
+from moviepy.audio.io.AudioFileClip import AudioFileClip
+from moviepy.editor import concatenate_videoclips, ImageClip
 
 # Create necessary directories
 os.makedirs("songs", exist_ok=True)
@@ -121,19 +126,29 @@ def filter_short_songs(audio_files, min_duration=30):
     return valid_audio_files
 
 def main_loop(description, cover_description, num_songs):
-
     # Define folder paths
     folders_to_clear = ['audio', 'covers', 'songs']
-
     # Clear each folder
     for folder in folders_to_clear:
         clear_folder(folder)
-
     # Create the cover image using the separate cover description
     cover_path = create_cover_image(cover_description)
 
+    time.sleep(2) 
+
     # Extend the cover image
     cover_path = extend_cover_image(cover_path)
+
+    time.sleep(2)
+
+    # Generate the video with the given cover image
+    video_path = generate_video_with_cover(cover_path)
+
+    if video_path:
+        print(f"Video created and saved at {video_path}")
+    else:
+        print("Video generation failed.")
+        return
 
     # Generate songs in separate calls, each call returns 2 songs
     audio_files = []
@@ -151,11 +166,35 @@ def main_loop(description, cover_description, num_songs):
         seconds = int(timestamp % 60)
         timestamps_in_minutes.append(f"{minutes:02}:{seconds:02}")
 
-    # Create a single video from the combined audio and cover image
-    current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-    video_filename = f"combined_video_{current_time}.mp4"
-    output_path = f"video/{video_filename}"
-    create_video(combined_audio_path, cover_path, output_path)
+    # Load audio and video
+    audio_clip = AudioFileClip(combined_audio_path)
+    audio_duration = audio_clip.duration
+    print(f"Audio duration: {audio_duration} seconds")
+
+    video_clip = VideoFileClip(video_path)
+    video_duration = video_clip.duration
+    print(f"Video duration: {video_duration} seconds")
+
+    # Calculate repetitions
+    num_repeats = int(audio_duration // video_duration) + 1
+    print(f"Number of repeats needed: {num_repeats}")
+
+    # Repeat video to match audio duration
+    repeated_clips = [video_clip] * num_repeats
+    final_video_without_audio = concatenate_videoclips(repeated_clips).subclip(0, audio_duration)
+
+    # Save video without audio
+    temp_video_path = "video/temp_video.mp4"
+    final_video_without_audio.write_videofile(temp_video_path, codec="libx264")
+    print(f"Temporary video created and saved at {temp_video_path}")
+
+    # Load the saved video and add audio
+    final_video_clip = VideoFileClip(temp_video_path).set_audio(audio_clip)
+
+    # Save the final video with audio
+    final_video_path = "video/final_video_with_audio.mp4"
+    final_video_clip.write_videofile(final_video_path, codec="libx264", audio_codec="mp3")
+    print(f"Final video with audio created and saved at {final_video_path}")
 
     # Print or return the timestamps for each song
     print("Timestamps for each song in the combined file:", timestamps_in_minutes)
@@ -168,8 +207,8 @@ def main_loop(description, cover_description, num_songs):
     print(f"Generated Video Title: {video_title}")
     print(f"Generated Video Description: {video_description}")
 
-    text_filename = video_filename.replace('.mp4', '.txt')
-    text_output_path = f"video/{text_filename}"
+    text_filename = video_path.replace('.mp4', '.txt')
+    text_output_path = f"{text_filename}"
 
     # Write the video title and description into the text file
     with open(text_output_path, 'w', encoding='utf-8') as file:
@@ -183,7 +222,7 @@ def main_loop(description, cover_description, num_songs):
     tags = ['lofi', 'jazz', 'study']
 
     # Upload video to YouTube
-    upload_video(youtube, output_path, title, description, category, tags)
+    upload_video(youtube, final_video_path, title, description, category, tags)
 
 def main():
     # Get a description for the album's music
@@ -207,7 +246,6 @@ def main():
         num_albums = 1
     else:
         num_albums = int(num_albums)  # Convert to integer if input is not blank
-
 
     for _ in range(num_albums):
         try:
