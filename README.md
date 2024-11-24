@@ -19,19 +19,26 @@ Uses [Suno API](https://github.com/gcui-art/suno-api) to host a server that is c
 - Number of Albums: How many albums to create in total.
   
 If you leave any input blank, default values will be used.
-  
+
+## Enhanced Video-Cover (Branch)
+
+This branch enhances the video output by using the [runwayml](https://runwayml.com/) api to create dynamic visuals looped for the duration of the audio track, providing a more engaging experience than the static album cover used in the main version.
+
+Sample output for branch: https://www.youtube.com/watch?v=k-_kJ53d0UM
+
 ## Installation and Usage
 
 1. **Clone Suno API server linked above and get it running**
 2. **Clone this Repository**
 3. **Install Dependencies**
 4. **Add OpenAI API key as Environment Variables**
-5. **Configure Google API Credentials**
+5. **(For video-cover branch only) Add Runwayml API key**
+6. **Configure Google API Credentials**
    - Enable the YouTube Data API v3 in your Google Developers Console.
    - Download client_secret.json and place it in the project root directory.
-6. **Run 'Python app.py'**
+7. **Run 'Python app.py'**
 
-Sample outputs:
+outputs:
 https://www.youtube.com/@while_True_break/videos
 
 
