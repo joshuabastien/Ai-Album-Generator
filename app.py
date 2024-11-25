@@ -126,20 +126,41 @@ def filter_short_songs(audio_files, min_duration=30):
     return valid_audio_files
 
 def main_loop(description, cover_description, num_songs):
-    # Define folder paths
-    folders_to_clear = ['audio', 'covers', 'songs']
-    # Clear each folder
-    for folder in folders_to_clear:
-        clear_folder(folder)
-    # Create the cover image using the separate cover description
-    cover_path = create_cover_image(cover_description)
+    
+    cover_path = None
+    is_cover_approved = False  # Flag to track if the user approves the cover
+    
+    # Loop until the user approves the cover
+    while not is_cover_approved:
 
-    time.sleep(2) 
+        # Define folder paths
+        folders_to_clear = ['audio', 'covers', 'songs']
+        # Clear each folder
+        for folder in folders_to_clear:
+            clear_folder(folder)
 
-    # Extend the cover image
-    cover_path = extend_cover_image(cover_path)
+        # Create the cover image using the separate cover description
+        cover_path = create_cover_image(cover_description)
+        time.sleep(2) 
 
-    time.sleep(2)
+        # Extend the cover image
+        cover_path = extend_cover_image(cover_path)
+        time.sleep(2)
+
+        # Show the cover or notify the user
+        print(f"Cover image created and extended: {cover_path}")
+        user_input = input("Is the cover good enough? (y/n): ").strip().lower()
+        
+        if user_input == 'y':
+            is_cover_approved = True
+        elif user_input == 'n':
+            print("Creating a new cover image...")
+        else:
+            print("Invalid input. Please respond with 'yes' or 'no'.")
+    
+    # Proceed with the next steps
+    print("Cover approved. Proceeding with the next steps...")
+
 
     # Generate the video with the given cover image
     video_path = generate_video_with_cover(cover_path)
