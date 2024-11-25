@@ -24,7 +24,7 @@ If you leave any input blank, default values will be used.
 
 This branch enhances the video output by using the [runwayml](https://runwayml.com/) api to create dynamic visuals looped for the duration of the audio track, providing a more engaging experience than the static album cover used in the main version.
 
-Sample output for branch: https://www.youtube.com/watch?v=k-_kJ53d0UM
+Sample output for branch: https://www.youtube.com/watch?v=SgEwCdasvuk
 
 ## Installation and Usage
 
