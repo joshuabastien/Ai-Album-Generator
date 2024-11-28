@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # Load environment variables from the .env file
 load_dotenv()
 
-def generate_video_with_cover(image_path, prompt_text='Very subtle, slow motion', model='gen3a_turbo', download_folder="video", max_retries=60, delay=10):
+def generate_video_with_cover(image_path, prompt_text='Static camera, dynamic motion', model='gen3a_turbo', download_folder="video", max_retries=60, delay=10):
     """
     Submits a video generation task, polls for its completion, downloads the video, and returns the video path.
 
